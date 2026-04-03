@@ -1,0 +1,17 @@
+# Local development files
+local/
+
+# Environment
+.env
+
+# Node
+node_modules/
+dist/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# OS
+.DS_Store
