@@ -1,0 +1,13 @@
+{
+  "name": "crocheth",
+  "private": true,
+  "scripts": {
+    "build:contracts": "cd contracts && forge build",
+    "test:contracts": "cd contracts && forge test -vv",
+    "deploy:sepolia": "cd contracts && source ../.env && forge clean && forge script script/Deploy.s.sol --rpc-url $ETH_SEPOLIA_RPC --account default --broadcast --verify --etherscan-api-key $ETHERSCAN_API_KEY",
+    "approve:sepolia": "cd contracts && source ../.env && cast send $ENS_REGISTRY_ADDRESS \"setApprovalForAll(address,bool)\" $VITE_REGISTRAR_ADDRESS true --rpc-url $ETH_SEPOLIA_RPC --account default",
+    "codegen": "cd contracts && forge build && cd ../app && bunx wagmi generate",
+    "dev": "cd app && bun run dev",
+    "build": "cd app && bun run build"
+  }
+}

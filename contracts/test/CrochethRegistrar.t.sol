@@ -98,7 +98,7 @@ contract CrochethRegistrarTest is Test {
 
     function test_register_basic() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "The first croch.eth balaclava");
+        registrar.register("midnight", commitment1, 42);
 
         bytes32 subnode = _subnode("midnight");
 
@@ -108,23 +108,23 @@ contract CrochethRegistrarTest is Test {
         // Marker is mapped
         assertEq(registrar.markerToSubnode(42), subnode);
 
-        // ENS ownership transferred to balaclava wallet
+        // ENS ownership transferred to item wallet
         assertEq(ens.owners(subnode), wallet1);
 
         // Resolver set
         assertEq(ens.resolvers(subnode), address(resolver));
 
-        // Address record points to balaclava wallet
+        // Address record points to item wallet
         assertEq(resolver.addr(subnode), wallet1);
 
         // Text records
         assertEq(resolver.text(subnode, "marker"), "42");
-        assertEq(resolver.text(subnode, "bio"), "The first croch.eth balaclava");
+
     }
 
     function test_register_commitment_stored() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "");
+        registrar.register("midnight", commitment1, 42);
 
         bytes32 subnode = _subnode("midnight");
         string memory stored = resolver.text(subnode, "commitment");
@@ -137,18 +137,18 @@ contract CrochethRegistrarTest is Test {
         bytes32 subnode = _subnode("midnight");
 
         vm.expectEmit(true, true, false, true);
-        emit CrochethRegistrar.BalaclavaRegistered("midnight", subnode, wallet1, commitment1, 42);
+        emit CrochethRegistrar.ItemRegistered("midnight", subnode, wallet1, commitment1, 42);
 
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "bio here");
+        registrar.register("midnight", commitment1, 42);
     }
 
     function test_register_multiple() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "First");
+        registrar.register("midnight", commitment1, 42);
 
         vm.prank(wallet2);
-        registrar.register("shadow", commitment2, 7, "Second");
+        registrar.register("shadow", commitment2, 7);
 
         assertTrue(registrar.registered(_subnode("midnight")));
         assertTrue(registrar.registered(_subnode("shadow")));
@@ -156,32 +156,26 @@ contract CrochethRegistrarTest is Test {
         assertEq(resolver.addr(_subnode("shadow")), wallet2);
     }
 
-    function test_register_empty_bio() public {
-        vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "");
 
-        // Bio should not be set (empty string)
-        assertEq(resolver.text(_subnode("midnight"), "bio"), "");
-    }
 
     // ─── Reverts ────────────────────────────────────────────────
 
     function test_register_reverts_duplicate_label() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "");
+        registrar.register("midnight", commitment1, 42);
 
         vm.prank(wallet2);
         vm.expectRevert("Label taken");
-        registrar.register("midnight", commitment2, 7, "");
+        registrar.register("midnight", commitment2, 7);
     }
 
     function test_register_reverts_duplicate_marker() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "");
+        registrar.register("midnight", commitment1, 42);
 
         vm.prank(wallet2);
         vm.expectRevert("Marker already used");
-        registrar.register("shadow", commitment2, 42, "");
+        registrar.register("shadow", commitment2, 42);
     }
 
     // ─── View Functions ─────────────────────────────────────────
@@ -192,7 +186,7 @@ contract CrochethRegistrarTest is Test {
 
     function test_available_returns_false() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "");
+        registrar.register("midnight", commitment1, 42);
 
         assertFalse(registrar.available("midnight"));
     }
@@ -203,14 +197,14 @@ contract CrochethRegistrarTest is Test {
 
     function test_markerAvailable_returns_false() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "");
+        registrar.register("midnight", commitment1, 42);
 
         assertFalse(registrar.markerAvailable(42));
     }
 
     function test_subnodeForMarker() public {
         vm.prank(wallet1);
-        registrar.register("midnight", commitment1, 42, "");
+        registrar.register("midnight", commitment1, 42);
 
         assertEq(registrar.subnodeForMarker(42), _subnode("midnight"));
     }
@@ -228,10 +222,10 @@ contract CrochethRegistrarTest is Test {
         bytes32 salt = bytes32("salt1");
         bytes32 commitment = keccak256(abi.encodePacked(realOwner, salt));
 
-        vm.prank(wallet1); // wallet1 is the BALACLAVA wallet, not the owner
-        registrar.register("midnight", commitment, 42, "");
+        vm.prank(wallet1); // wallet1 is the item wallet, not the owner
+        registrar.register("midnight", commitment, 42);
 
-        // On-chain: only wallet1 (balaclava) and commitment (hash) are visible
+        // On-chain: only wallet1 (item) and commitment (hash) are visible
         // realOwner address appears nowhere
         assertEq(resolver.addr(_subnode("midnight")), wallet1);
         assertTrue(wallet1 != realOwner);

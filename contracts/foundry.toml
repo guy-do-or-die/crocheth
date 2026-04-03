@@ -3,6 +3,10 @@ src = "src"
 out = "out"
 libs = ["lib"]
 solc = "0.8.24"
+dotenv = "../.env"
 
 [rpc_endpoints]
-sepolia = "${ETH_SEPOLIA_RPC}"
+sepolia = "https://rpc.sepolia.org"
+
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=11155111" }

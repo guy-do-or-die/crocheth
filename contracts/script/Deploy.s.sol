@@ -9,23 +9,26 @@ contract Deploy is Script {
     address constant ENS_REGISTRY = 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e;
     address constant PUBLIC_RESOLVER = 0x8FADE66B79cC9f707aB26799354482EB93a5B7dD;
 
-    // namehash("croch.eth") — must be precomputed
-    // keccak256(abi.encodePacked(namehash("eth"), keccak256("croch")))
-    bytes32 constant PARENT_NODE = 0x788e8a09d05a30fd80bcc7fdd68ae6b1f4e0c5d7d58c1e3b048b0a8d5e9f1c2a;
-
     function run() external {
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        // namehash("croch.eth") — computed off-chain
+        // namehash("eth") = 0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae
+        // namehash("croch.eth") = keccak256(abi.encodePacked(namehash("eth"), keccak256("croch")))
+        bytes32 parentNode = keccak256(abi.encodePacked(
+            bytes32(0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae),
+            keccak256("croch")
+        ));
 
-        vm.startBroadcast(deployerKey);
+        console.log("Parent node (croch.eth):", vm.toString(parentNode));
+
+        vm.startBroadcast();
 
         CrochethRegistrar registrar = new CrochethRegistrar(
             ENS_REGISTRY,
             PUBLIC_RESOLVER,
-            PARENT_NODE
+            parentNode
         );
 
         console.log("CrochethRegistrar deployed at:", address(registrar));
-        console.log("Parent node (croch.eth):", vm.toString(PARENT_NODE));
         console.log("");
         console.log("NEXT STEPS:");
         console.log("1. From croch.eth owner, call:");

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 /// @title CrochethRegistrar — Permissionless ENS subdomain registration for croch.eth
-/// @notice Anyone can register a balaclava subdomain under croch.eth.
+/// @notice Anyone can register a item subdomain under croch.eth.
 ///         Each subdomain maps to an anonymous persistent wallet with a commitment hash.
 /// @dev The croch.eth owner must call ens.setApprovalForAll(registrar, true) once.
 contract CrochethRegistrar {
@@ -20,7 +20,7 @@ contract CrochethRegistrar {
 
     // ─── Events ─────────────────────────────────────────────────
 
-    event BalaclavaRegistered(
+    event ItemRegistered(
         string label,
         bytes32 indexed subnode,
         address indexed wallet,
@@ -38,16 +38,14 @@ contract CrochethRegistrar {
 
     // ─── Registration ───────────────────────────────────────────
 
-    /// @notice Register a new balaclava subdomain — permissionless
+    /// @notice Register a new item subdomain — permissionless
     /// @param label The subdomain label (e.g., "midnight" → midnight.croch.eth)
     /// @param commitment keccak256(ownerEOA, salt) — owner identity never on-chain
-    /// @param markerID The ArUco marker ID crocheted into this balaclava
-    /// @param bio Public bio text for the profile
+    /// @param markerID The ArUco marker ID crocheted into this item
     function register(
         string calldata label,
         bytes32 commitment,
-        uint256 markerID,
-        string calldata bio
+        uint256 markerID
     ) external {
         bytes32 labelHash = keccak256(bytes(label));
         bytes32 subnode = keccak256(abi.encodePacked(parentNode, labelHash));
@@ -64,20 +62,17 @@ contract CrochethRegistrar {
         // Set resolver
         ens.setResolver(subnode, address(resolver));
 
-        // Set address to caller (the balaclava's anonymous wallet)
+        // Set address to caller (the item's anonymous wallet)
         resolver.setAddr(subnode, msg.sender);
 
         // Set text records
         resolver.setText(subnode, "commitment", _bytes32ToHex(commitment));
         resolver.setText(subnode, "marker", _uint256ToString(markerID));
-        if (bytes(bio).length > 0) {
-            resolver.setText(subnode, "bio", bio);
-        }
 
-        // Transfer subdomain ownership to the balaclava wallet
+        // Transfer subdomain ownership to the item wallet
         ens.setSubnodeOwner(parentNode, labelHash, msg.sender);
 
-        emit BalaclavaRegistered(label, subnode, msg.sender, commitment, markerID);
+        emit ItemRegistered(label, subnode, msg.sender, commitment, markerID);
     }
 
     // ─── Views ──────────────────────────────────────────────────
