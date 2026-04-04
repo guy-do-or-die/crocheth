@@ -25,19 +25,71 @@ export function ArucoScanner({ onMarkerDetected, active }: ArucoScannerProps) {
   const [error, setError] = useState<string | null>(null)
 
   const startCamera = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
+    setError(null) // clear previous errors so tab-switching resets
+
+    const MAX_RETRIES = 3
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // Request camera stream
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+        })
+        streamRef.current = stream
+
+        const video = videoRef.current
+        if (!video) {
+          // Video element not mounted yet — wait a frame and retry
+          stream.getTracks().forEach(t => t.stop())
+          if (attempt < MAX_RETRIES) {
+            await new Promise(r => setTimeout(r, 300))
+            continue
+          }
+          throw new Error('Video element not ready')
+        }
+
+        video.srcObject = stream
+
+        // Wait for the video to actually load the stream metadata
+        // before calling play() — prevents PARSE_ERROR on Android
+        await new Promise<void>((resolve, reject) => {
+          if (video.readyState >= 2) {
+            resolve()
+            return
+          }
+          const onLoaded = () => {
+            video.removeEventListener('loadedmetadata', onLoaded)
+            video.removeEventListener('error', onError)
+            resolve()
+          }
+          const onError = (e: Event) => {
+            video.removeEventListener('loadedmetadata', onLoaded)
+            video.removeEventListener('error', onError)
+            reject(new Error('Video stream failed to load'))
+          }
+          video.addEventListener('loadedmetadata', onLoaded)
+          video.addEventListener('error', onError)
+          // Safety timeout
+          setTimeout(() => {
+            video.removeEventListener('loadedmetadata', onLoaded)
+            video.removeEventListener('error', onError)
+            resolve() // try to play anyway
+          }, 2000)
+        })
+
+        await video.play()
         setCameraReady(true)
+        console.log(`[Camera] Started on attempt ${attempt}`)
+        return // success
+
+      } catch (err) {
+        console.warn(`[Camera] Attempt ${attempt}/${MAX_RETRIES} failed:`, err)
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 500))
+          continue
+        }
+        setError('Camera access denied. Please allow camera permissions.')
+        console.error('Camera error:', err)
       }
-    } catch (err) {
-      setError('Camera access denied. Please allow camera permissions.')
-      console.error('Camera error:', err)
     }
   }, [])
 

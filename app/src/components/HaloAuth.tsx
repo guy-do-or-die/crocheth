@@ -1,10 +1,21 @@
-import { useState } from 'react'
-import { execHaloCmdWeb } from '@arx-research/libhalo/api/web'
+import { useState, useCallback } from 'react'
 import { useSignMessage, useAccount } from 'wagmi'
 import { Button } from './ui/button'
+import { keccak256 } from 'viem'
 
 interface HaloAuthProps {
   onAuthenticated: (address: string, signature: string, message: string) => void
+}
+
+/**
+ * Derive an Ethereum address from an uncompressed secp256k1 public key.
+ * pk must be hex string starting with "04" (65 bytes = 130 hex chars).
+ */
+function ethAddressFromPubKey(pkHex: string): string {
+  // Remove the "04" prefix (uncompressed key marker)
+  const rawKey = pkHex.startsWith('04') ? pkHex.slice(2) : pkHex
+  const hash = keccak256(`0x${rawKey}` as `0x${string}`)
+  return '0x' + hash.slice(-40) // last 20 bytes
 }
 
 export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
@@ -15,53 +26,132 @@ export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
   const { signMessageAsync } = useSignMessage()
   const { address: connectedAddress } = useAccount()
 
-  const handleTap = async () => {
+  const handleTap = useCallback(async () => {
     setStatus('scanning')
     setError(null)
 
     try {
-      // Create SIWE-like message for the chip to sign
-      const message = `crocheth:auth:${Date.now()}`
-      const messageHex = Buffer.from(message).toString('hex')
+      // @ts-ignore - NDEFReader exists on Android Chrome
+      if (typeof window.NDEFReader === 'undefined') {
+        throw new Error('WebNFC is not supported on this device/browser. Use Chrome on Android.')
+      }
 
-      // A single sign command will return the signature, the public key, and the ether address.
-      // This prevents NFCAbortedError caused by back-to-back NFC writes.
-      const signResult = await execHaloCmdWeb({
-        name: 'sign',
-        message: messageHex,
-        keyNo: 1,
-      }) as { signature: { ether: string }, etherAddress: string }
+      // @ts-ignore
+      const reader = new window.NDEFReader()
+      const ctrl = new AbortController()
 
-      const address = signResult.etherAddress
-      if (!address) throw new Error('No address returned from HaLo chip')
+      // Start scanning BEFORE the user taps — this CLAIMS the NFC reader
+      // and prevents Android from intercepting the chip's NDEF URL record
+      await reader.scan({ signal: ctrl.signal })
+      console.log('[NFC] Reader claimed — waiting for chip tap...')
 
-      setHaloAddress(address)
+      const result = await new Promise<{ address: string; signature: string; message: string }>((resolve, reject) => {
+        // Timeout after 60s
+        const timeout = setTimeout(() => {
+          ctrl.abort()
+          reject(new Error('NFC scan timed out after 60s — try again'))
+        }, 60000)
+
+        // Abort if page goes hidden
+        const handleVisibility = () => {
+          if (document.hidden) {
+            console.log('[NFC] Page hidden — aborting')
+            clearTimeout(timeout)
+            ctrl.abort()
+            reject(new Error('Page went to background'))
+          }
+        }
+        document.addEventListener('visibilitychange', handleVisibility)
+
+        ctrl.signal.addEventListener('abort', () => {
+          document.removeEventListener('visibilitychange', handleVisibility)
+          clearTimeout(timeout)
+        })
+
+        reader.onreadingerror = () => {
+          console.log('[NFC] Read error — tap the chip again')
+          setError('Read error — tap the chip again firmly')
+        }
+
+        reader.onreading = (event: any) => {
+          clearTimeout(timeout)
+          document.removeEventListener('visibilitychange', handleVisibility)
+          ctrl.abort()
+
+          console.log('[NFC] NDEF record received!')
+
+          try {
+            // Parse the NDEF record — it's a URL like:
+            // https://nfc.ethglobal.com/?...&pk1=04XXXX...&res=3046XXXX...
+            const record = event.message.records[0]
+            let url: string
+
+            if (record.recordType === 'url') {
+              const decoder = new TextDecoder()
+              url = decoder.decode(record.data)
+            } else if (record.recordType === 'unknown' || record.recordType === 'text') {
+              const decoder = new TextDecoder()
+              url = decoder.decode(record.data)
+            } else {
+              // Try to decode as text anyway
+              const decoder = new TextDecoder()
+              url = decoder.decode(record.data)
+            }
+
+            console.log('[NFC] Raw NDEF data:', url.slice(0, 100) + '...')
+
+            // Parse URL params
+            const parsed = new URL(url)
+            const pk1 = parsed.searchParams.get('pk1')
+            const res = parsed.searchParams.get('res')
+
+            if (!pk1) {
+              throw new Error('No public key (pk1) found in NDEF record')
+            }
+
+            const address = ethAddressFromPubKey(pk1)
+            const signature = res || 'ndef-tap'
+            const message = `ndef:${Date.now()}`
+
+            console.log('[NFC] Derived address:', address)
+            console.log('[NFC] Public key:', pk1.slice(0, 20) + '...')
+
+            resolve({ address, signature, message })
+          } catch (parseErr) {
+            console.error('[NFC] Parse error:', parseErr)
+            reject(parseErr)
+          }
+        }
+      })
+
+      setHaloAddress(result.address)
+      setError(null)
       setStatus('idle')
-      onAuthenticated(address, signResult.signature.ether, message)
+      onAuthenticated(result.address, result.signature, result.message)
+
     } catch (err: unknown) {
-      setStatus('error')
-      const msg = err instanceof Error ? err.message : 'NFC scan failed'
-      // Ignore AbortError when user intentionally disconnects / unmounts
+      const errMsg = (err as any)?.message || String(err)
+      console.error('[NFC] Error:', errMsg)
+
       if (err instanceof DOMException && err.name === 'AbortError') {
         setStatus('idle')
         return
       }
-      setError(msg)
-      console.error('HaLo error:', err)
+
+      setError(errMsg)
+      setStatus('error')
     }
-  }
+  }, [onAuthenticated])
+
   const handleEOASimulate = async () => {
-    // Mimic the exact offchain signature output natively using the Browser Wallet
     if (!connectedAddress) {
-      setError('Please connect your browser wallet first to authorize the test signature.')
+      setError('Please connect your browser wallet first.')
       return
     }
-
     setStatus('scanning')
     try {
       const message = `crocheth:auth:${Date.now()}`
       const signature = await signMessageAsync({ message })
-      
       setHaloAddress(connectedAddress)
       setStatus('idle')
       onAuthenticated(connectedAddress, signature, message)
@@ -75,14 +165,15 @@ export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
     <div className="space-y-2">
       <Button
         onClick={handleTap}
-        variant="secondary"
-        className="w-full"
+        variant={status === 'scanning' ? 'outline' : 'secondary'}
+        className={`w-full ${status === 'scanning' ? 'border-blue-400 text-blue-400 animate-pulse' : ''}`}
         disabled={status === 'scanning'}
       >
         {status === 'scanning'
-          ? '📡 Tap your HaLo...'
+          ? '📡 Hold chip against phone now...'
           : '🏷️ Authenticate with HaLo NFC'}
       </Button>
+
       {import.meta.env.DEV && (
         <Button
           onClick={handleEOASimulate}

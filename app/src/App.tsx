@@ -307,9 +307,6 @@ function App() {
                     {/* Authenticated identity pill */}
                     <div className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/30">
                       <div className="flex flex-col">
-                        <span className="text-xs text-muted-foreground">
-                          {haloAuth ? '🔮 HaLo identity' : '🔗 Wallet'}
-                        </span>
                         <span className="text-xs font-mono truncate max-w-[220px]">
                           {signerAddress}
                         </span>
@@ -393,7 +390,6 @@ function App() {
                       >
                         View Transaction ↗
                       </a>
-                      <span className="font-mono opacity-60">Block: {mintSuccess.block}</span>
                     </div>
                   </div>
                 )}
@@ -411,12 +407,9 @@ function App() {
                        {mintStep}
                     </span>
                   ) : (
-                    '⛓ Mint Identity Natively'
+                    '⛓ Mint Identity'
                   )}
                 </Button>
-                <p className="text-xs text-center text-muted-foreground">
-                  Executed directly on-chain. Requires Base Sepolia ETH.
-                </p>
               </CardFooter>
             </Card>
 

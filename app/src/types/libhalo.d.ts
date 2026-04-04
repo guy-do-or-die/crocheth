@@ -4,5 +4,8 @@ declare module '@arx-research/libhalo/api/web' {
     message?: string
     keyNo?: number
     [key: string]: unknown
+  }, options?: {
+    method?: 'credential' | 'webnfc'
+    statusCallback?: (cause: string, stepInfo: any) => void
   }): Promise<Record<string, unknown>>
 }

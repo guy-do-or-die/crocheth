@@ -12,43 +12,66 @@ interface UnlinkDashProps {
 
 // Loaded dynamically from Vite Env
 const UNLINK_MNEMONIC = import.meta.env.VITE_UNLINK_MNEMONIC ?? ''
-
-interface UnlinkDashProps {
-  burner: BurnerWallet | null
-}
+const UNLINK_API_KEY = import.meta.env.VITE_UNLINK_API_KEY ?? 'dev_key'
+const ENGINE_URL = 'https://staging-api.unlink.xyz'
+const FAUCET_TOKEN = '0x7501de8ea37a21e20e6e65947d2ecab0e9f061a7'
 
 export function UnlinkDash({ burner }: UnlinkDashProps) {
   const { address } = useAccount()
   const [amount, setAmount] = useState('0.001')
-  const [status, setStatus] = useState<string>('Idle')
+  const [status, setStatus] = useState<string>()
   const [isLoading, setIsLoading] = useState(false)
 
   // Initialize Unlink infrastructure strictly on the client side
   const getUnlinkInfra = useCallback(async () => {
-    if (!address) throw new Error('Connect your main wallet first')
 
-    const engineUrl = 'https://staging-api.unlink.xyz'
-    const apiKey = import.meta.env.VITE_UNLINK_API_KEY ?? 'dev_key'
-    
     setStatus('Initializing Client-Side Unlink ZK Engine...')
-    const unlinkClient = createUnlinkClient(engineUrl, apiKey)
+    const unlinkClient = createUnlinkClient(ENGINE_URL, UNLINK_API_KEY)
 
     // Retrieve the user's secure Darkpool account
     const account = unlinkAccount.fromMnemonic({ mnemonic: UNLINK_MNEMONIC })
     const accountKeys = await account.getAccountKeys()
     
     // Auto-register the derived identity on the Darkpool API
-    // Normally handled implicitly by the parent client, which we bypassed
     try {
       await createUser(unlinkClient, accountKeys)
     } catch (e: any) {
+      // 400 = already registered, which is fine
       if (!e?.message?.includes('400')) {
         console.warn('Registration soft-fail', e)
       }
     }
 
     return { unlinkClient, accountKeys, account }
-  }, [address])
+  }, [])
+
+  const requestFaucet = async () => {
+    const { accountKeys } = await getUnlinkInfra()
+    const unlinkAddress = accountKeys.address
+    setStatus(`Requesting faucet for ${unlinkAddress.slice(0, 20)}...`)
+    const FAUCET_URL = 'https://corsproxy.io/?' + encodeURIComponent('https://hackathon-apikey.vercel.app/api/faucet')
+    const res = await fetch(FAUCET_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: unlinkAddress, mode: 'unlink', apiKey: UNLINK_API_KEY })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || `Faucet HTTP ${res.status}`)
+    return data
+  }
+
+  const handleRequestFaucet = async () => {
+    setIsLoading(true)
+    try {
+      const data = await requestFaucet()
+      setStatus(`Faucet sent! (${JSON.stringify(data)}). Wait ~30s then Fund.`)
+    } catch (err: any) {
+      console.error('Faucet error:', err)
+      setStatus(`Faucet error: ${err.message}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleFundBurner = async () => {
     if (!burner) return
@@ -56,17 +79,31 @@ export function UnlinkDash({ burner }: UnlinkDashProps) {
     try {
       const { unlinkClient, accountKeys } = await getUnlinkInfra()
 
-      setStatus('Client-Side ZK calculating: Routing funds to Burner...')
-      // Generate Zero-Knowledge Mathematical Signature natively in Vite!
-      // Must use the explicitly identical token address provided by the Unlink Testnet Faucet
-      const result = await burner.fundFromPool(unlinkClient, {
-        senderKeys: accountKeys, 
-        token: '0x7501de8ea37a21e20e6e65947d2ecab0e9f061a7', 
-        amount: parseEther(amount).toString(),
-        environment: 'base-sepolia'
-      })
-
-      setStatus(`Funded Burner successfully! Tx: ${result.txId}`)
+      setStatus('Checking pool balance...')
+      
+      try {
+        // Attempt to fund directly
+        setStatus('Client-Side ZK: Routing funds to Burner...')
+        const result = await burner.fundFromPool(unlinkClient, {
+          senderKeys: accountKeys, 
+          token: FAUCET_TOKEN, 
+          amount: parseEther(amount).toString(),
+          environment: 'base-sepolia'
+        })
+        setStatus(`Funded Burner! Tx: ${result.txId}`)
+      } catch (fundErr: any) {
+        if (fundErr.message?.includes('insufficient balance')) {
+          setStatus('Pool empty — auto-requesting faucet...')
+          try {
+            await requestFaucet()
+            setStatus('Faucet requested! Wait ~30s and press Fund again.')
+          } catch (faucetErr: any) {
+            setStatus(`Auto-faucet failed: ${faucetErr.message}. Use 🚰 button.`)
+          }
+        } else {
+          throw fundErr
+        }
+      }
     } catch (err: any) {
       console.error(err)
       setStatus(`Error: ${err.message}`)
@@ -82,15 +119,13 @@ export function UnlinkDash({ burner }: UnlinkDashProps) {
       const { unlinkClient, account } = await getUnlinkInfra()
 
       setStatus('Sweeping Burner funds back to Darkpool...')
-      // Generate the user's Unlink string address
       const accountKeys = await account.getAccountKeys()
       const unlinkAddress = accountKeys.address
       const info = await BurnerWallet.getInfo(unlinkClient)
 
-      // Deposit from burner directly back into the user's darkpool natively in Vite!
       const result = await burner.depositToPool(unlinkClient, {
         unlinkAddress,
-        token: '0x7501de8ea37a21e20e6e65947d2ecab0e9f061a7',
+        token: FAUCET_TOKEN,
         amount: parseEther(amount).toString(),
         environment: 'base-sepolia',
         chainId: info.chain_id,
@@ -139,24 +174,31 @@ export function UnlinkDash({ burner }: UnlinkDashProps) {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <Button 
-            className="w-full bg-green-600 hover:bg-green-700" 
-            onClick={handleFundBurner}
-            disabled={isLoading || !address}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-xs" 
+            onClick={handleRequestFaucet}
+            disabled={isLoading}
           >
-            Fund from Pool 👀
+            🚰 Faucet
           </Button>
           <Button 
-            className="w-full bg-purple-600 hover:bg-purple-700" 
-            onClick={handleSweepBurner}
-            disabled={isLoading || !address}
+            className="w-full bg-green-600 hover:bg-green-700 text-xs" 
+            onClick={handleFundBurner}
+            disabled={isLoading}
           >
-            Sweep to Pool 🧹
+            Fund 👀
+          </Button>
+          <Button 
+            className="w-full bg-purple-600 hover:bg-purple-700 text-xs" 
+            onClick={handleSweepBurner}
+            disabled={isLoading}
+          >
+            Sweep 🧹
           </Button>
         </div>
       </CardContent>
-      <CardFooter className="pt-0">
+      <CardFooter className="pt-4">
         <p className="text-xs text-muted-foreground">{status}</p>
       </CardFooter>
     </Card>
