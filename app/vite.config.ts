@@ -18,6 +18,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      'module': path.resolve(__dirname, './module-stub.js'),
     },
   },
   server: {

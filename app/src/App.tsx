@@ -1,11 +1,17 @@
 import { useState, useCallback } from 'react'
-import { useAccount, useDisconnect } from 'wagmi'
+import { useAccount, useDisconnect, usePublicClient, useSignMessage } from 'wagmi'
 import { useAppKit } from '@reown/appkit/react'
 import { useReadContract } from 'wagmi'
-import { keccak256, encodePacked } from 'viem'
+import { keccak256, encodePacked, createWalletClient, http, publicActions } from 'viem'
+import { baseSepolia } from 'viem/chains'
+import { type LocalAccount } from 'viem'
 import { ArucoScanner } from './components/ArucoScanner'
 import { ProfileCard } from './components/ProfileCard'
 import { HaloAuth } from './components/HaloAuth'
+import { UnlinkDash } from './components/UnlinkDash'
+import { deriveDeterministicBurner } from './utils/burner'
+import { BurnerWallet } from '@unlink-xyz/sdk'
+import { useEffect } from 'react'
 import { Button } from './components/ui/button'
 import {
   Card,
@@ -33,12 +39,25 @@ const L2_REGISTRAR_ABI = [
     inputs: [{ name: 'markerID', type: 'uint256' }],
     outputs: [{ name: '', type: 'bytes32' }],
   },
+  {
+    name: 'register',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'label', type: 'string' },
+      { name: 'haLoCommitment', type: 'bytes32' },
+      { name: 'markerID', type: 'uint256' },
+    ],
+    outputs: [],
+  },
 ] as const
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function App() {
   const { address } = useAccount()
+  const publicClient = usePublicClient()
+  const { signMessageAsync } = useSignMessage()
   const { open } = useAppKit()
   const { disconnect } = useDisconnect()
 
@@ -52,13 +71,31 @@ function App() {
     message: string
   } | null>(null)
 
-  const [minting, setMinting] = useState(false)
+  const [mintStep, setMintStep] = useState<string | null>(null)
   const [mintSuccess, setMintSuccess] = useState<{
     subdomain: string
     txHash: string
     block: number
   } | null>(null)
   const [mintError, setMintError] = useState<string | null>(null)
+
+  const [burner, setBurner] = useState<BurnerWallet | null>(null)
+  const [burnerAccount, setBurnerAccount] = useState<LocalAccount | null>(null)
+
+  // Derive the burner wallet deterministically whenever HaLo chip provides a reliable cryptographic signature.
+  useEffect(() => {
+    if (haloAuth?.signature) {
+      deriveDeterministicBurner(haloAuth.signature)
+        .then(({ burner: b, account: a }) => {
+          setBurner(b)
+          setBurnerAccount(a)
+        })
+        .catch((err) => console.error('Failed to derive burner:', err))
+    } else {
+      setBurner(null)
+      setBurnerAccount(null)
+    }
+  }, [haloAuth?.signature])
 
   // The active signer address — from either HaLo NFC or connected wallet
   const signerAddress = haloAuth?.address ?? address
@@ -91,13 +128,24 @@ function App() {
     }
   }
 
-  // ─── Mint via backend relayer ─────────────────────────────────────────────
+  // ─── Mint via native local EVM execution ─────────────────────────────────
+
+  const handleWalletBurnerDerive = async () => {
+    if (!address) return
+    try {
+      const message = `crocheth:auth:${Date.now()}`
+      const signature = await signMessageAsync({ message })
+      setHaloAuth({ address, signature, message })
+    } catch (err: unknown) {
+      setMintError(err instanceof Error ? err.message : 'Wallet signature failed')
+    }
+  }
 
   const handleMint = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!signerAddress) return
 
-    setMinting(true)
+    setMintStep('Preparing Payload...')
     setMintError(null)
     setMintSuccess(null)
 
@@ -107,32 +155,48 @@ function App() {
       )
       console.log(`[mint] label=${label} markerID=${markerId} commitment=${commitment}`)
 
-      const res = await fetch(`${RELAYER_URL}/mint`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          label,
-          signerAddress,
-          markerID: Number(markerId),
-        }),
+      let txHash: string;
+      
+      if (!burnerAccount) {
+        throw new Error('Fatal: No Hardware Burner detected. Generate a signature via Halo or Browser Wallet to derive it.')
+      }
+
+      setMintStep('Signing securely via isolated Burner...')
+      // Generate a standalone WalletClient to execute using Burner gas to protect privacy
+      const executor = createWalletClient({
+        account: burnerAccount,
+        chain: baseSepolia,
+        transport: http('https://sepolia.base.org'),
+      }).extend(publicActions)
+      
+      txHash = await executor.writeContract({
+        address: L2_REGISTRAR_ADDRESS,
+        abi: L2_REGISTRAR_ABI,
+        functionName: 'register',
+        args: [label, commitment, BigInt(markerId)]
       })
 
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Unknown relayer error')
+      setMintStep(`Broadcasting TX: ${txHash.slice(0, 6)}...${txHash.slice(-4)}`)
+
+      if (publicClient) {
+        setMintStep('Waiting for Block Confirmation...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` })
+        if (receipt.status === 'reverted') throw new Error('Transaction reverted on-chain')
+      }
 
       setMintSuccess({
-        subdomain: data.subdomain,
-        txHash: data.txHash,
-        block: data.block,
+        subdomain: `${label}.croch.eth`,
+        txHash: txHash,
+        block: 0, // Simplified for direct client mode
       })
     } catch (err: unknown) {
       setMintError(err instanceof Error ? err.message : String(err))
     } finally {
-      setMinting(false)
+      setMintStep(null)
     }
   }
 
-  const canMint = !!signerAddress && !!label && !!markerId && !minting
+  const canMint = !!signerAddress && !!label && !!markerId && !mintStep
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-4 selection:bg-primary/30 font-sans">
@@ -263,6 +327,18 @@ function App() {
                       </Button>
                     </div>
 
+                    {/* Developer Mock Burner Loader */}
+                    {!burnerAccount && import.meta.env.DEV && (
+                      <Button
+                        type="button"
+                        onClick={handleWalletBurnerDerive}
+                        variant="outline"
+                        className="w-full text-xs text-purple-400 border-purple-500/20 border-dashed bg-purple-500/5 hover:bg-purple-500/10"
+                      >
+                        [DEV] Sign off-chain to derive Burner Wallet proxy
+                      </Button>
+                    )}
+
                     <div className="space-y-2">
                       <Label htmlFor="label">Subdomain Label</Label>
                       <div className="flex items-center gap-2">
@@ -329,13 +405,25 @@ function App() {
                   className="w-full"
                   disabled={!canMint}
                 >
-                  {minting ? 'Minting via Unlink…' : '⛓ Mint Identity (Gasless)'}
+                  {mintStep ? (
+                    <span className="flex items-center gap-2">
+                       <span className="animate-spin text-lg leading-none">⟳</span>
+                       {mintStep}
+                    </span>
+                  ) : (
+                    '⛓ Mint Identity Natively'
+                  )}
                 </Button>
                 <p className="text-xs text-center text-muted-foreground">
-                  No gas required — minted anonymously via Unlink on Base Sepolia
+                  Executed directly on-chain. Requires Base Sepolia ETH.
                 </p>
               </CardFooter>
             </Card>
+
+            {/* Always display the Unlink Dashboard if a burner was successfully derived from HaLo signature */}
+            {burner && (
+              <UnlinkDash burner={burner} />
+            )}
           </TabsContent>
         </Tabs>
       </div>

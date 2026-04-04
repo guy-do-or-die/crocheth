@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { execHaloCmdWeb } from '@arx-research/libhalo/api/web'
+import { useSignMessage, useAccount } from 'wagmi'
 import { Button } from './ui/button'
 
 interface HaloAuthProps {
@@ -10,6 +11,9 @@ export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [haloAddress, setHaloAddress] = useState<string | null>(null)
+
+  const { signMessageAsync } = useSignMessage()
+  const { address: connectedAddress } = useAccount()
 
   const handleTap = async () => {
     setStatus('scanning')
@@ -46,6 +50,26 @@ export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
       console.error('HaLo error:', err)
     }
   }
+  const handleEOASimulate = async () => {
+    // Mimic the exact offchain signature output natively using the Browser Wallet
+    if (!connectedAddress) {
+      setError('Please connect your browser wallet first to authorize the test signature.')
+      return
+    }
+
+    setStatus('scanning')
+    try {
+      const message = `crocheth:auth:${Date.now()}`
+      const signature = await signMessageAsync({ message })
+      
+      setHaloAddress(connectedAddress)
+      setStatus('idle')
+      onAuthenticated(connectedAddress, signature, message)
+    } catch (err: unknown) {
+      setStatus('error')
+      setError(err instanceof Error ? err.message : 'Signature rejected')
+    }
+  }
 
   return (
     <div className="space-y-2">
@@ -59,6 +83,16 @@ export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
           ? '📡 Tap your HaLo...'
           : '🏷️ Authenticate with HaLo NFC'}
       </Button>
+      {import.meta.env.DEV && (
+        <Button
+          onClick={handleEOASimulate}
+          variant="outline"
+          className="w-full text-xs text-muted-foreground border-dashed"
+          disabled={status === 'scanning'}
+        >
+          [DEV] Derive Burner via Wallet Signature
+        </Button>
+      )}
 
       {haloAddress && (
         <div 
