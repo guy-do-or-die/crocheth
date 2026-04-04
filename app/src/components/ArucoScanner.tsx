@@ -61,7 +61,7 @@ export function ArucoScanner({ onMarkerDetected, active }: ArucoScannerProps) {
             video.removeEventListener('error', onError)
             resolve()
           }
-          const onError = (e: Event) => {
+          const onError = (_e: Event) => {
             video.removeEventListener('loadedmetadata', onLoaded)
             video.removeEventListener('error', onError)
             reject(new Error('Video stream failed to load'))

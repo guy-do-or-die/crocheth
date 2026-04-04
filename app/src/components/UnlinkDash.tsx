@@ -3,7 +3,6 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { createUnlinkClient, unlinkAccount, BurnerWallet, createUser } from '@unlink-xyz/sdk'
-import { useAccount } from 'wagmi'
 import { parseEther } from 'viem'
 
 interface UnlinkDashProps {
@@ -11,13 +10,13 @@ interface UnlinkDashProps {
 }
 
 // Loaded dynamically from Vite Env
+// HACKATHON: in production, pool keys live inside a TEE — client never touches them
 const UNLINK_MNEMONIC = import.meta.env.VITE_UNLINK_MNEMONIC ?? ''
 const UNLINK_API_KEY = import.meta.env.VITE_UNLINK_API_KEY ?? 'dev_key'
 const ENGINE_URL = 'https://staging-api.unlink.xyz'
 const FAUCET_TOKEN = '0x7501de8ea37a21e20e6e65947d2ecab0e9f061a7'
 
 export function UnlinkDash({ burner }: UnlinkDashProps) {
-  const { address } = useAccount()
   const [amount, setAmount] = useState('0.001')
   const [status, setStatus] = useState<string>()
   const [isLoading, setIsLoading] = useState(false)

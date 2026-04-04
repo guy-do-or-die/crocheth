@@ -28,7 +28,6 @@ import { Badge } from './components/ui/badge'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const RELAYER_URL = import.meta.env.VITE_RELAYER_URL ?? 'http://localhost:3001'
 const L2_REGISTRAR_ADDRESS = import.meta.env.VITE_L2_REGISTRAR_ADDRESS as `0x${string}`
 
 const L2_REGISTRAR_ABI = [
