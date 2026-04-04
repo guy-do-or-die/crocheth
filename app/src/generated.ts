@@ -123,6 +123,30 @@ export const crochethRegistrarAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ENSPublicResolver
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const ensPublicResolverAbi = [
+  {
+    type: 'function',
+    inputs: [{ name: 'node', type: 'bytes32' }],
+    name: 'addr',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: 'node', type: 'bytes32' },
+      { name: 'key', type: 'string' },
+    ],
+    name: 'text',
+    outputs: [{ name: '', type: 'string' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // IENS
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -329,6 +353,27 @@ export const useWatchCrochethRegistrarItemRegisteredEvent =
     abi: crochethRegistrarAbi,
     eventName: 'ItemRegistered',
   })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link ensPublicResolverAbi}__
+ */
+export const useReadEnsPublicResolver = /*#__PURE__*/ createUseReadContract({
+  abi: ensPublicResolverAbi,
+})
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link ensPublicResolverAbi}__ and `functionName` set to `"addr"`
+ */
+export const useReadEnsPublicResolverAddr = /*#__PURE__*/ createUseReadContract(
+  { abi: ensPublicResolverAbi, functionName: 'addr' },
+)
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link ensPublicResolverAbi}__ and `functionName` set to `"text"`
+ */
+export const useReadEnsPublicResolverText = /*#__PURE__*/ createUseReadContract(
+  { abi: ensPublicResolverAbi, functionName: 'text' },
+)
 
 /**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link iensAbi}__

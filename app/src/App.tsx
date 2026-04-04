@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
-import { useAccount, useConnect, useDisconnect, useConnectors } from 'wagmi'
+import { useAccount, useDisconnect } from 'wagmi'
+import { useAppKit } from '@reown/appkit/react'
 import { useReadContract } from 'wagmi'
 import { keccak256, encodePacked, stringToBytes, bytesToHex } from 'viem'
 import {
@@ -7,6 +8,8 @@ import {
   crochethRegistrarAbi,
 } from './generated'
 import { ArucoScanner } from './components/ArucoScanner'
+import { ProfileCard } from './components/ProfileCard'
+import { HaloAuth } from './components/HaloAuth'
 import { Button } from './components/ui/button'
 import {
   Card,
@@ -25,14 +28,18 @@ const CONTRACT_ADDRESS = import.meta.env.VITE_REGISTRAR_ADDRESS as `0x${string}`
 
 function App() {
   const { address, isConnected } = useAccount()
-  const connectors = useConnectors()
-  const { connect } = useConnect()
+  const { open } = useAppKit()
   const { disconnect } = useDisconnect()
 
   const [activeTab, setActiveTab] = useState('scan')
   const [label, setLabel] = useState('')
   const [markerId, setMarkerId] = useState('')
   const [detectedId, setDetectedId] = useState<number | null>(null)
+  const [haloAuth, setHaloAuth] = useState<{
+    address: string
+    signature: string
+    message: string
+  } | null>(null)
 
   const { writeContract, isPending, isSuccess, error } =
     useWriteCrochethRegistrarRegister()
@@ -136,14 +143,14 @@ function App() {
                       Register This Marker →
                     </Button>
                   )}
-                  {isMarkerRegistered && (
-                    <Button className="w-full" variant="secondary" disabled>
-                      View Profile (coming soon)
-                    </Button>
-                  )}
                 </CardFooter>
               )}
             </Card>
+
+            {/* Show profile when a registered marker is detected */}
+            {detectedId !== null && isMarkerRegistered && (
+              <ProfileCard markerId={detectedId} />
+            )}
           </TabsContent>
 
           {/* ─── REGISTER TAB ─── */}
@@ -156,18 +163,30 @@ function App() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!isConnected ? (
-                  <div className="flex flex-col gap-2">
-                    {connectors.map((connector) => (
-                      <Button
-                        key={connector.uid}
-                        onClick={() => connect({ connector })}
-                        variant="secondary"
-                        className="w-full"
-                      >
-                        Connect {connector.name}
-                      </Button>
-                    ))}
+                {!isConnected && !haloAuth ? (
+                  <div className="flex flex-col gap-3">
+                    <Button
+                      onClick={() => open()}
+                      variant="secondary"
+                      className="w-full"
+                    >
+                      🔗 Connect Wallet
+                    </Button>
+
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t border-border" />
+                      </div>
+                      <div className="relative flex justify-center text-xs">
+                        <span className="bg-card px-2 text-muted-foreground">or</span>
+                      </div>
+                    </div>
+
+                    <HaloAuth
+                      onAuthenticated={(address, signature, message) =>
+                        setHaloAuth({ address, signature, message })
+                      }
+                    />
                   </div>
                 ) : (
                   <form
@@ -177,13 +196,16 @@ function App() {
                   >
                     <div className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/30">
                       <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">
-                        {address}
+                        {address || haloAuth?.address}
                       </span>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => disconnect()}
+                        onClick={() => {
+                          if (isConnected) disconnect()
+                          if (haloAuth) setHaloAuth(null)
+                        }}
                       >
                         ✕
                       </Button>
@@ -235,17 +257,22 @@ function App() {
                   </div>
                 )}
               </CardContent>
-              <CardFooter>
+              <CardFooter className="flex-col items-stretch gap-2">
                 <Button
                   type="submit"
                   form="mint-form"
                   className="w-full"
                   disabled={
-                    !isConnected || isPending || !label || !markerId
+                    (!isConnected && !haloAuth) || isPending || !label || !markerId || (!!haloAuth && !isConnected)
                   }
                 >
                   {isPending ? 'Confirming...' : 'Mint Identity'}
                 </Button>
+                {!!haloAuth && !isConnected && (
+                  <p className="text-xs text-center text-orange-400">
+                    TEE Relayer is required to mint gaslessly via HaLo. Please connect a Wallet instead to mint directly.
+                  </p>
+                )}
               </CardFooter>
             </Card>
           </TabsContent>
