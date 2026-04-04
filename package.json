@@ -6,8 +6,13 @@
     "test:contracts": "cd contracts && forge test -vv",
     "deploy:sepolia": "cd contracts && source ../.env && forge clean && forge script script/Deploy.s.sol --rpc-url $ETH_SEPOLIA_RPC --account default --broadcast --verify --etherscan-api-key $ETHERSCAN_API_KEY",
     "approve:sepolia": "cd contracts && source ../.env && cast send $ENS_REGISTRY_ADDRESS \"setApprovalForAll(address,bool)\" $VITE_REGISTRAR_ADDRESS true --rpc-url $ETH_SEPOLIA_RPC --account default",
+    "deploy:base-sepolia": "cd contracts && source ../.env && forge clean && forge script script/DeployCrochethL2Registrar.s.sol --rpc-url base_sepolia --account default --broadcast --verify --etherscan-api-key $ETHERSCAN_API_KEY",
+    "registrar:approve": "cd contracts && . ../.env && cast send $L2_REGISTRY_ADDRESS \"addRegistrar(address)\" $VITE_L2_REGISTRAR_ADDRESS --rpc-url https://sepolia.base.org --account default",
+    "durin:set-resolver": "cd contracts && . ../.env && NODE=$(cast keccak $(cast abi-encode \"f(bytes32,bytes32)\" $(cast namehash \"eth\") $(cast keccak \"croch\"))) && cast send $ENS_REGISTRY_ADDRESS \"setResolver(bytes32,address)\" $NODE 0x8A968aB9eb8C084FBC44c531058Fc9ef945c3D61 --rpc-url $ETH_SEPOLIA_RPC --account default",
+    "durin:set-registry": "cd contracts && . ../.env && NODE=$(cast keccak $(cast abi-encode \"f(bytes32,bytes32)\" $(cast namehash \"eth\") $(cast keccak \"croch\"))) && cast send 0x8A968aB9eb8C084FBC44c531058Fc9ef945c3D61 \"setL2Registry(bytes32,uint64,address)\" $NODE 84532 $L2_REGISTRY_ADDRESS --rpc-url $ETH_SEPOLIA_RPC --account default",
     "codegen": "cd contracts && forge build && cd ../app && bunx wagmi generate",
     "dev": "cd app && bun run dev",
+    "backend": "cd local && set -a; . ../.env; set +a; bun run index.ts",
     "build": "cd app && bun run build"
   }
 }

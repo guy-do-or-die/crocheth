@@ -2,11 +2,7 @@ import { useState, useCallback } from 'react'
 import { useAccount, useDisconnect } from 'wagmi'
 import { useAppKit } from '@reown/appkit/react'
 import { useReadContract } from 'wagmi'
-import { keccak256, encodePacked, stringToBytes, bytesToHex } from 'viem'
-import {
-  useWriteCrochethRegistrarRegister,
-  crochethRegistrarAbi,
-} from './generated'
+import { keccak256, encodePacked } from 'viem'
 import { ArucoScanner } from './components/ArucoScanner'
 import { ProfileCard } from './components/ProfileCard'
 import { HaloAuth } from './components/HaloAuth'
@@ -24,10 +20,25 @@ import { Label } from './components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
 import { Badge } from './components/ui/badge'
 
-const CONTRACT_ADDRESS = import.meta.env.VITE_REGISTRAR_ADDRESS as `0x${string}`
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const RELAYER_URL = import.meta.env.VITE_RELAYER_URL ?? 'http://localhost:3001'
+const L2_REGISTRAR_ADDRESS = import.meta.env.VITE_L2_REGISTRAR_ADDRESS as `0x${string}`
+
+const L2_REGISTRAR_ABI = [
+  {
+    name: 'markerToSubnode',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'markerID', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bytes32' }],
+  },
+] as const
+
+// ─── App ─────────────────────────────────────────────────────────────────────
 
 function App() {
-  const { address, isConnected } = useAccount()
+  const { address } = useAccount()
   const { open } = useAppKit()
   const { disconnect } = useDisconnect()
 
@@ -41,13 +52,19 @@ function App() {
     message: string
   } | null>(null)
 
-  const { writeContract, isPending, isSuccess, error } =
-    useWriteCrochethRegistrarRegister()
+  const [minting, setMinting] = useState(false)
+  const [mintSuccess, setMintSuccess] = useState<{
+    subdomain: string
+    txHash: string
+    block: number
+  } | null>(null)
+  const [mintError, setMintError] = useState<string | null>(null)
 
-  // Check if the detected marker is already registered
+  // The active signer address — from either HaLo NFC or connected wallet
+  const signerAddress = haloAuth?.address ?? address
   const { data: markerSubnode } = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: crochethRegistrarAbi,
+    address: L2_REGISTRAR_ADDRESS,
+    abi: L2_REGISTRAR_ABI,
     functionName: 'markerToSubnode',
     args: detectedId !== null ? [BigInt(detectedId)] : undefined,
     query: { enabled: detectedId !== null },
@@ -67,27 +84,55 @@ function App() {
     [detectedId],
   )
 
-  const handleMint = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!address) return
-
-    const salt = bytesToHex(stringToBytes('my-secret-salt', { size: 32 }))
-    const commitment = keccak256(
-      encodePacked(['address', 'bytes32'], [address, salt]),
-    )
-
-    writeContract({
-      address: CONTRACT_ADDRESS,
-      args: [label, commitment, BigInt(markerId || 0)],
-    })
-  }
-
   const handleRegisterFromScan = () => {
     if (detectedId !== null) {
       setMarkerId(String(detectedId))
       setActiveTab('register')
     }
   }
+
+  // ─── Mint via backend relayer ─────────────────────────────────────────────
+
+  const handleMint = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!signerAddress) return
+
+    setMinting(true)
+    setMintError(null)
+    setMintSuccess(null)
+
+    try {
+      const commitment = keccak256(
+        encodePacked(['address'], [signerAddress as `0x${string}`])
+      )
+      console.log(`[mint] label=${label} markerID=${markerId} commitment=${commitment}`)
+
+      const res = await fetch(`${RELAYER_URL}/mint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label,
+          signerAddress,
+          markerID: Number(markerId),
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Unknown relayer error')
+
+      setMintSuccess({
+        subdomain: data.subdomain,
+        txHash: data.txHash,
+        block: data.block,
+      })
+    } catch (err: unknown) {
+      setMintError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMinting(false)
+    }
+  }
+
+  const canMint = !!signerAddress && !!label && !!markerId && !minting
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-4 selection:bg-primary/30 font-sans">
@@ -147,7 +192,6 @@ function App() {
               )}
             </Card>
 
-            {/* Show profile when a registered marker is detected */}
             {detectedId !== null && isMarkerRegistered && (
               <ProfileCard markerId={detectedId} />
             )}
@@ -159,12 +203,13 @@ function App() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg">Register Item</CardTitle>
                 <CardDescription>
-                  Claim a subdomain and link your ArUco marker.
+                  Tap your NFC chip to prove ownership, then claim a subdomain.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!isConnected && !haloAuth ? (
+                {!signerAddress ? (
                   <div className="flex flex-col gap-3">
+                    {/* Wallet option */}
                     <Button
                       onClick={() => open()}
                       variant="secondary"
@@ -182,9 +227,10 @@ function App() {
                       </div>
                     </div>
 
+                    {/* HaLo NFC option */}
                     <HaloAuth
-                      onAuthenticated={(address, signature, message) =>
-                        setHaloAuth({ address, signature, message })
+                      onAuthenticated={(addr, signature, message) =>
+                        setHaloAuth({ address: addr, signature, message })
                       }
                     />
                   </div>
@@ -194,17 +240,23 @@ function App() {
                     onSubmit={handleMint}
                     className="space-y-4"
                   >
+                    {/* Authenticated identity pill */}
                     <div className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/30">
-                      <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">
-                        {address || haloAuth?.address}
-                      </span>
+                      <div className="flex flex-col">
+                        <span className="text-xs text-muted-foreground">
+                          {haloAuth ? '🔮 HaLo identity' : '🔗 Wallet'}
+                        </span>
+                        <span className="text-xs font-mono truncate max-w-[220px]">
+                          {signerAddress}
+                        </span>
+                      </div>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          if (isConnected) disconnect()
                           if (haloAuth) setHaloAuth(null)
+                          else disconnect()
                         }}
                       >
                         ✕
@@ -218,7 +270,7 @@ function App() {
                           id="label"
                           placeholder="midnight"
                           value={label}
-                          onChange={(e) => setLabel(e.target.value)}
+                          onChange={(e) => setLabel(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
                           required
                         />
                         <span className="text-muted-foreground font-mono text-sm shrink-0">
@@ -246,14 +298,27 @@ function App() {
                   </form>
                 )}
 
-                {error && (
-                  <div className="text-sm text-destructive p-2 bg-destructive/10 rounded border border-destructive/20">
-                    {error.message.split('\n')[0]}
+                {mintError && (
+                  <div className="text-sm text-destructive p-2 bg-destructive/10 rounded border border-destructive/20 break-words">
+                    {mintError}
                   </div>
                 )}
-                {isSuccess && (
-                  <div className="text-sm text-green-500 p-2 bg-green-500/10 rounded border border-green-500/20">
-                    ✓ Registered {label}.croch.eth!
+                {mintSuccess && (
+                  <div className="text-sm space-y-2 p-3 bg-green-500/10 rounded border border-green-500/20">
+                    <p className="text-green-500">
+                      ✓ Registered <strong>{mintSuccess.subdomain}</strong>
+                    </p>
+                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                      <a
+                        href={`https://sepolia.basescan.org/tx/${mintSuccess.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="hover:text-green-400 underline decoration-green-500/30 underline-offset-2 transition-colors truncate"
+                      >
+                        View Transaction ↗
+                      </a>
+                      <span className="font-mono opacity-60">Block: {mintSuccess.block}</span>
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -262,17 +327,13 @@ function App() {
                   type="submit"
                   form="mint-form"
                   className="w-full"
-                  disabled={
-                    (!isConnected && !haloAuth) || isPending || !label || !markerId || (!!haloAuth && !isConnected)
-                  }
+                  disabled={!canMint}
                 >
-                  {isPending ? 'Confirming...' : 'Mint Identity'}
+                  {minting ? 'Minting via Unlink…' : '⛓ Mint Identity (Gasless)'}
                 </Button>
-                {!!haloAuth && !isConnected && (
-                  <p className="text-xs text-center text-orange-400">
-                    TEE Relayer is required to mint gaslessly via HaLo. Please connect a Wallet instead to mint directly.
-                  </p>
-                )}
+                <p className="text-xs text-center text-muted-foreground">
+                  No gas required — minted anonymously via Unlink on Base Sepolia
+                </p>
               </CardFooter>
             </Card>
           </TabsContent>

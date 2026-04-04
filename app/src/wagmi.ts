@@ -1,5 +1,5 @@
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi'
-import { sepolia } from '@reown/appkit/networks'
+import { baseSepolia } from '@reown/appkit/networks'
 import { http } from 'wagmi'
 
 const projectId = import.meta.env.VITE_REOWN_PROJECT_ID
@@ -10,9 +10,9 @@ if (!projectId) {
 
 export const wagmiAdapter = new WagmiAdapter({
   projectId,
-  networks: [sepolia],
+  networks: [baseSepolia],
   transports: {
-    [sepolia.id]: http(),
+    [baseSepolia.id]: http('https://sepolia.base.org'),
   },
 })
 
