@@ -71,6 +71,10 @@ contract CrochethL2Registrar {
         registry.setText(node, "commitment", _bytes32ToHex(haLoCommitment));
         registry.setText(node, "marker", _uint256ToString(markerID));
 
+        // Set the standard ENS address record (coinType 60 = ETH) so wallets/dapps
+        // can resolve this subdomain to the burner wallet address.
+        registry.setAddr(node, 60, abi.encodePacked(msg.sender));
+
         // Mint the subdomain NFT — owner is msg.sender (the anonymous Unlink burner).
         // No HaLo address or user EOA ever touches the chain.
         registry.createSubnode(
@@ -81,6 +85,59 @@ contract CrochethL2Registrar {
         );
 
         emit ItemRegistered(label, node, msg.sender, haLoCommitment, markerID);
+    }
+
+    // ─── Transfer ───────────────────────────────────────────────
+
+    event ItemTransferred(
+        bytes32 indexed subnode,
+        address indexed oldOwner,
+        address indexed newOwner,
+        bytes32 newCommitment
+    );
+
+    /// @notice Transfer domain ownership to a new burner (derived from a new NFC chip / EOA).
+    /// @dev Only callable by the current domain owner (the old burner).
+    ///      Updates commitment + addr records. Funds must be swept separately.
+    /// @param markerID   The ArUco marker ID of the item being transferred
+    /// @param newCommitment keccak256(newSignerAddress) — new owner's identity hash
+    /// @param newOwner   The new burner address that will control this domain
+    function transfer(
+        uint256 markerID,
+        bytes32 newCommitment,
+        address newOwner
+    ) external {
+        bytes32 node = markerToSubnode[markerID];
+        require(node != bytes32(0), "Not registered");
+
+        // Only the current domain owner can transfer
+        uint256 tokenId = uint256(node);
+        require(registry.ownerOf(tokenId) == msg.sender, "Not owner");
+
+        // Update identity records to new owner
+        registry.setText(node, "commitment", _bytes32ToHex(newCommitment));
+        registry.setAddr(node, 60, abi.encodePacked(newOwner));
+
+        emit ItemTransferred(node, msg.sender, newOwner, newCommitment);
+    }
+
+    /// @notice Unlink the physical item from the current domain.
+    /// @dev Only callable by the current domain owner (the active burner).
+    ///      This wipes the `markerToSubnode` record so the marker can be registered
+    ///      to a completely fresh label in the future.
+    function unlinkIdentity(uint256 markerID) external {
+        bytes32 node = markerToSubnode[markerID];
+        require(node != bytes32(0), "Not registered");
+
+        // Only the domain owner can unlink
+        uint256 tokenId = uint256(node);
+        require(registry.ownerOf(tokenId) == msg.sender, "Not owner");
+
+        // Free the marker
+        markerToSubnode[markerID] = bytes32(0);
+        
+        // Blank out the commitment
+        registry.setText(node, "commitment", "");
     }
 
     // ─── Views ──────────────────────────────────────────────────

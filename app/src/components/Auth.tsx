@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react'
-import { useSignMessage, useAccount } from 'wagmi'
 import { Button } from './ui/button'
 import { keccak256 } from 'viem'
 
-interface HaloAuthProps {
+interface AuthProps {
   onAuthenticated: (address: string, signature: string, message: string) => void
 }
+
 
 /**
  * Derive an Ethereum address from an uncompressed secp256k1 public key.
@@ -18,13 +18,10 @@ function ethAddressFromPubKey(pkHex: string): string {
   return '0x' + hash.slice(-40) // last 20 bytes
 }
 
-export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
+export function Auth({ onAuthenticated }: AuthProps) {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [haloAddress, setHaloAddress] = useState<string | null>(null)
-
-  const { signMessageAsync } = useSignMessage()
-  const { address: connectedAddress } = useAccount()
 
   const handleTap = useCallback(async () => {
     setStatus('scanning')
@@ -143,24 +140,6 @@ export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
     }
   }, [onAuthenticated])
 
-  const handleEOASimulate = async () => {
-    if (!connectedAddress) {
-      setError('Please connect your browser wallet first.')
-      return
-    }
-    setStatus('scanning')
-    try {
-      const message = `crocheth:auth:${Date.now()}`
-      const signature = await signMessageAsync({ message })
-      setHaloAddress(connectedAddress)
-      setStatus('idle')
-      onAuthenticated(connectedAddress, signature, message)
-    } catch (err: unknown) {
-      setStatus('error')
-      setError(err instanceof Error ? err.message : 'Signature rejected')
-    }
-  }
-
   return (
     <div className="space-y-2">
       <Button
@@ -171,19 +150,8 @@ export function HaloAuth({ onAuthenticated }: HaloAuthProps) {
       >
         {status === 'scanning'
           ? '📡 Hold chip against phone now...'
-          : '🏷️ Authenticate with HaLo NFC'}
+          : '🏷️ Authenticate with NFC'}
       </Button>
-
-      {import.meta.env.DEV && (
-        <Button
-          onClick={handleEOASimulate}
-          variant="outline"
-          className="w-full text-xs text-muted-foreground border-dashed"
-          disabled={status === 'scanning'}
-        >
-          [DEV] Derive Burner via Wallet Signature
-        </Button>
-      )}
 
       {haloAddress && (
         <div 

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from './ui/card'
+import { Card, CardContent, CardFooter } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { createUnlinkClient, unlinkAccount, BurnerWallet, createUser } from '@unlink-xyz/sdk'
@@ -146,9 +146,6 @@ export function UnlinkDash({ burner }: UnlinkDashProps) {
 
   return (
     <Card className="border-green-500/20 bg-green-500/5 mt-4">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg">💰 Darkpool Balaclava Operations</CardTitle>
-      </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-1">
            <span className="text-xs text-muted-foreground uppercase tracking-wider">

@@ -1,0 +1,41 @@
+Warning: Found unknown `dotenv` config for profile `default` defined in foundry.toml.
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  Deploying CrochethL2Registrar...
+    L2Registry:  0x228eeCbA8D5336Fe3A904627F9985f6A6ffd0bdf
+    Deployed at: 0x498d40eE99c9ca805dbe84034Ff9Bb9F0F43c6A5
+  
+  NEXT STEP - whitelist it:
+    npm run registrar:approve
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 84532
+
+Estimated gas price: 0.011 gwei
+
+Estimated total gas used for script: 2154863
+
+Estimated amount required: 0.000023703493 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+##
+Start verification for (1) contracts
+Warning: Found unknown `dotenv` config for profile `default` defined in foundry.toml.
+Warning: Found unknown `dotenv` config for profile `default` defined in foundry.toml.
+Error: Failed to verify contract: environment variable `ETHERSCAN_API_KEY` not found; environment variable not found
+
+Transactions saved to: /home/guy_do_or_die/workspace/croch/crocheth/contracts/broadcast/DeployCrochethL2Registrar.s.sol/84532/run-latest.json
+
+Sensitive values saved to: /home/guy_do_or_die/workspace/croch/crocheth/contracts/cache/DeployCrochethL2Registrar.s.sol/84532/run-latest.json
+
+Error: Not all (0 / 1) contracts were verified!

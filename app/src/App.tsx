@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { useAccount, useDisconnect, usePublicClient, useSignMessage } from 'wagmi'
+import { useAccount, useDisconnect, usePublicClient } from 'wagmi'
 import { useAppKit } from '@reown/appkit/react'
 import { useReadContract } from 'wagmi'
 import { keccak256, encodePacked, createWalletClient, http, publicActions } from 'viem'
@@ -7,7 +7,7 @@ import { baseSepolia } from 'viem/chains'
 import { type LocalAccount } from 'viem'
 import { ArucoScanner } from './components/ArucoScanner'
 import { ProfileCard } from './components/ProfileCard'
-import { HaloAuth } from './components/HaloAuth'
+import { Auth } from './components/Auth'
 import { UnlinkDash } from './components/UnlinkDash'
 import { deriveDeterministicBurner } from './utils/burner'
 import { BurnerWallet } from '@unlink-xyz/sdk'
@@ -56,13 +56,13 @@ const L2_REGISTRAR_ABI = [
 function App() {
   const { address } = useAccount()
   const publicClient = usePublicClient()
-  const { signMessageAsync } = useSignMessage()
   const { open } = useAppKit()
   const { disconnect } = useDisconnect()
 
   const [activeTab, setActiveTab] = useState('scan')
   const [label, setLabel] = useState('')
   const [markerId, setMarkerId] = useState('')
+  const [pin, setPin] = useState('')
   const [detectedId, setDetectedId] = useState<number | null>(null)
   const [haloAuth, setHaloAuth] = useState<{
     address: string
@@ -81,10 +81,11 @@ function App() {
   const [burner, setBurner] = useState<BurnerWallet | null>(null)
   const [burnerAccount, setBurnerAccount] = useState<LocalAccount | null>(null)
 
-  // Derive the burner wallet deterministically whenever HaLo chip provides a reliable cryptographic signature.
+  // Derive burner deterministically from chip identity (pk1) + marker context.
+  // Same chip + same marker = same burner. Same chip + different marker = different burner.
   useEffect(() => {
-    if (haloAuth?.signature) {
-      deriveDeterministicBurner(haloAuth.signature)
+    if (haloAuth?.address && markerId) {
+      deriveDeterministicBurner(haloAuth.address, markerId, pin)
         .then(({ burner: b, account: a }) => {
           setBurner(b)
           setBurnerAccount(a)
@@ -94,7 +95,7 @@ function App() {
       setBurner(null)
       setBurnerAccount(null)
     }
-  }, [haloAuth?.signature])
+  }, [haloAuth?.address, markerId, pin])
 
   // The active signer address — from either HaLo NFC or connected wallet
   const signerAddress = haloAuth?.address ?? address
@@ -128,17 +129,6 @@ function App() {
   }
 
   // ─── Mint via native local EVM execution ─────────────────────────────────
-
-  const handleWalletBurnerDerive = async () => {
-    if (!address) return
-    try {
-      const message = `crocheth:auth:${Date.now()}`
-      const signature = await signMessageAsync({ message })
-      setHaloAuth({ address, signature, message })
-    } catch (err: unknown) {
-      setMintError(err instanceof Error ? err.message : 'Wallet signature failed')
-    }
-  }
 
   const handleMint = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -209,54 +199,123 @@ function App() {
           </p>
         </div>
 
+        {/* ─── SHARED IDENTITY CARD ─── */}
+        <Card className="border-border bg-card">
+          <CardContent className="pt-4 pb-4">
+            {!signerAddress ? (
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-muted-foreground text-center">Authenticate to register or manage items</p>
+                <Button
+                  onClick={() => open()}
+                  variant="secondary"
+                  className="w-full"
+                >
+                  🔗 Connect Wallet
+                </Button>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="bg-card px-2 text-muted-foreground">or</span>
+                  </div>
+                </div>
+
+                <Auth
+                  onAuthenticated={(addr, signature, message) =>
+                    setHaloAuth({ address: addr, signature, message })
+                  }
+                />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/30">
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">Authenticated as</span>
+                  <span className="text-xs font-mono truncate max-w-[220px]">{signerAddress}</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (haloAuth) setHaloAuth(null)
+                    else disconnect()
+                  }}
+                >
+                  ✕
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="scan">📷 Scan</TabsTrigger>
+            <TabsTrigger value="scan">🔍 Discover</TabsTrigger>
             <TabsTrigger value="register">✍️ Register</TabsTrigger>
           </TabsList>
 
-          {/* ─── SCAN TAB ─── */}
+          {/* ─── DISCOVER TAB ─── */}
           <TabsContent value="scan" className="space-y-4">
             <Card className="border-border bg-card">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Scan ArUco Marker</CardTitle>
-                <CardDescription>
-                  Point your camera at a crocheted ArUco marker to identify it.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ArucoScanner
-                  onMarkerDetected={onMarkerDetected}
-                  active={activeTab === 'scan'}
-                />
-              </CardContent>
-              {detectedId !== null && (
-                <CardFooter className="flex flex-col gap-3">
-                  <div className="w-full flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Marker ID
-                    </span>
-                    <Badge
-                      variant={isMarkerRegistered ? 'default' : 'secondary'}
-                    >
-                      #{detectedId}{' '}
-                      {isMarkerRegistered ? '• Registered' : '• Available'}
+              {detectedId === null ? (
+                // ── Scanning state ──────────────────────────────
+                <>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg">Discover Item</CardTitle>
+                    <CardDescription>
+                      Point your camera at a crocheted ArUco marker.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ArucoScanner
+                      onMarkerDetected={onMarkerDetected}
+                      active={activeTab === 'scan'}
+                    />
+                  </CardContent>
+                </>
+              ) : (
+                // ── Item detected ───────────────────────────────
+                <CardContent className="pt-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider">Detected Marker</p>
+                      <p className="text-lg font-bold">#{detectedId}</p>
+                    </div>
+                    <Badge variant={isMarkerRegistered ? 'default' : 'secondary'} className="text-sm px-3 py-1">
+                      {isMarkerRegistered ? '✓ Registered' : '○ Available'}
                     </Badge>
                   </div>
-                  {!isMarkerRegistered && (
+
+                  <div className="flex gap-2">
+                    {!isMarkerRegistered && (
+                      <Button className="flex-1" onClick={handleRegisterFromScan}>
+                        Register This Marker →
+                      </Button>
+                    )}
                     <Button
-                      className="w-full"
-                      onClick={handleRegisterFromScan}
+                      variant="outline"
+                      className={!isMarkerRegistered ? '' : 'w-full'}
+                      onClick={() => {
+                        setDetectedId(null)
+                        setMarkerId('')
+                      }}
                     >
-                      Register This Marker →
+                      📷 Scan Again
                     </Button>
-                  )}
-                </CardFooter>
+                  </div>
+                </CardContent>
               )}
             </Card>
 
             {detectedId !== null && isMarkerRegistered && (
-              <ProfileCard markerId={detectedId} />
+              <ProfileCard
+                markerId={detectedId}
+                burnerAccount={burnerAccount}
+                burner={burner}
+                signerAddress={signerAddress}
+              />
             )}
           </TabsContent>
 
@@ -270,70 +329,17 @@ function App() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!signerAddress ? (
-                  <div className="flex flex-col gap-3">
-                    {/* Wallet option */}
-                    <Button
-                      onClick={() => open()}
-                      variant="secondary"
-                      className="w-full"
-                    >
-                      🔗 Connect Wallet
-                    </Button>
-
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t border-border" />
-                      </div>
-                      <div className="relative flex justify-center text-xs">
-                        <span className="bg-card px-2 text-muted-foreground">or</span>
-                      </div>
-                    </div>
-
-                    {/* HaLo NFC option */}
-                    <HaloAuth
-                      onAuthenticated={(addr, signature, message) =>
-                        setHaloAuth({ address: addr, signature, message })
-                      }
-                    />
-                  </div>
-                ) : (
+                {signerAddress ? (
                   <form
                     id="mint-form"
                     onSubmit={handleMint}
                     className="space-y-4"
                   >
                     {/* Authenticated identity pill */}
-                    <div className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/30">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-mono truncate max-w-[220px]">
-                          {signerAddress}
-                        </span>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          if (haloAuth) setHaloAuth(null)
-                          else disconnect()
-                        }}
-                      >
-                        ✕
-                      </Button>
+                    <div className="flex items-center gap-2 p-2 rounded-md border border-border bg-muted/30">
+                      <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                      <span className="text-xs font-mono truncate">{signerAddress}</span>
                     </div>
-
-                    {/* Developer Mock Burner Loader */}
-                    {!burnerAccount && import.meta.env.DEV && (
-                      <Button
-                        type="button"
-                        onClick={handleWalletBurnerDerive}
-                        variant="outline"
-                        className="w-full text-xs text-purple-400 border-purple-500/20 border-dashed bg-purple-500/5 hover:bg-purple-500/10"
-                      >
-                        [DEV] Sign off-chain to derive Burner Wallet proxy
-                      </Button>
-                    )}
 
                     <div className="space-y-2">
                       <Label htmlFor="label">Subdomain Label</Label>
@@ -367,7 +373,28 @@ function App() {
                         </p>
                       )}
                     </div>
+
+                    {haloAuth && (
+                      <div className="space-y-2">
+                        <Label htmlFor="pin">Owner PIN</Label>
+                        <Input
+                          id="pin"
+                          type="password"
+                          placeholder="••••"
+                          value={pin}
+                          onChange={(e) => setPin(e.target.value)}
+                          autoComplete="off"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Secret PIN mixed into wallet derivation. Same PIN = same wallet.
+                        </p>
+                      </div>
+                    )}
                   </form>
+                ) : (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    Authenticate above to register an item.
+                  </p>
                 )}
 
                 {mintError && (
@@ -412,10 +439,6 @@ function App() {
               </CardFooter>
             </Card>
 
-            {/* Always display the Unlink Dashboard if a burner was successfully derived from HaLo signature */}
-            {burner && (
-              <UnlinkDash burner={burner} />
-            )}
           </TabsContent>
         </Tabs>
       </div>
