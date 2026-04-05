@@ -81,11 +81,15 @@ function App() {
   const [burner, setBurner] = useState<BurnerWallet | null>(null)
   const [burnerAccount, setBurnerAccount] = useState<LocalAccount | null>(null)
 
+  // The active signer address — from either HaLo NFC or connected wallet
+  const signerAddress = haloAuth?.address ?? address
+
   // Derive burner deterministically from chip identity (pk1) + marker context.
   // Same chip + same marker = same burner. Same chip + different marker = different burner.
   useEffect(() => {
-    if (haloAuth?.address && markerId) {
-      deriveDeterministicBurner(haloAuth.address, markerId, pin)
+    if (signerAddress && markerId) {
+      // Use fallback empty string for pin if undefined from HaLo
+      deriveDeterministicBurner(signerAddress, markerId, pin ?? '')
         .then(({ burner: b, account: a }) => {
           setBurner(b)
           setBurnerAccount(a)
@@ -95,10 +99,7 @@ function App() {
       setBurner(null)
       setBurnerAccount(null)
     }
-  }, [haloAuth?.address, markerId, pin])
-
-  // The active signer address — from either HaLo NFC or connected wallet
-  const signerAddress = haloAuth?.address ?? address
+  }, [signerAddress, markerId, pin])
   const { data: markerSubnode } = useReadContract({
     address: L2_REGISTRAR_ADDRESS,
     abi: L2_REGISTRAR_ABI,
@@ -313,7 +314,6 @@ function App() {
               <ProfileCard
                 markerId={detectedId}
                 burnerAccount={burnerAccount}
-                burner={burner}
                 signerAddress={signerAddress}
               />
             )}
@@ -441,6 +441,11 @@ function App() {
 
           </TabsContent>
         </Tabs>
+
+        {/* ─── SHARED UNLINK DASHBOARD ─── */}
+        {signerAddress && (activeTab === 'register' || (activeTab === 'scan' && detectedId !== null && isMarkerRegistered)) && (
+          <UnlinkDash burner={burner ?? null} />
+        )}
       </div>
     </div>
   )

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { WagmiProvider } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createAppKit } from '@reown/appkit/react'
-import { sepolia } from '@reown/appkit/networks'
+import { baseSepolia } from '@reown/appkit/networks'
 import './index.css'
 import App from './App.tsx'
 import { wagmiAdapter, projectId } from './wagmi.ts'
@@ -21,8 +21,8 @@ if (typeof window !== 'undefined') {
 createAppKit({
   adapters: [wagmiAdapter],
   projectId,
-  networks: [sepolia],
-  defaultNetwork: sepolia,
+  networks: [baseSepolia],
+  defaultNetwork: baseSepolia,
   themeMode: 'dark',
   allowUnsupportedChain: false,
   metadata: {

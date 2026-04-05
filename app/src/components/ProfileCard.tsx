@@ -2,14 +2,13 @@ import { useState, useEffect } from 'react'
 import { Badge } from './ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { useReadContract, usePublicClient } from 'wagmi'
-import { parseAbiItem, toHex, createWalletClient, http, parseAbi } from 'viem'
+import { parseAbiItem, createWalletClient, http, parseAbi, keccak256, encodePacked } from 'viem'
 import { baseSepolia } from 'viem/chains'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { deriveDeterministicBurner } from '../utils/burner'
-import { UnlinkDash } from './UnlinkDash'
+import { WCWallet } from './WCWallet'
 import type { LocalAccount } from 'viem'
-import type { BurnerWallet } from '@unlink-xyz/sdk'
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_L2_REGISTRAR_ADDRESS as `0x${string}`
 
@@ -45,10 +44,9 @@ interface ProfileCardProps {
   markerId: number
   signerAddress?: string | null
   burnerAccount?: LocalAccount | null
-  burner?: BurnerWallet | null
 }
 
-export function ProfileCard({ markerId, signerAddress, burnerAccount, burner }: ProfileCardProps) {
+export function ProfileCard({ markerId, signerAddress, burnerAccount }: ProfileCardProps) {
   const publicClient = usePublicClient()
   const [label, setLabel] = useState<string | null>(null)
   const [commitment, setCommitment] = useState<string | null>(null)
@@ -234,8 +232,8 @@ export function ProfileCard({ markerId, signerAddress, burnerAccount, burner }: 
                   Owner Controls
                 </p>
 
-                {/* Burner wallet management — fund & inspect */}
-                <UnlinkDash burner={burner ?? null} />
+                {/* WalletConnect — connect to any dApp with this burner */}
+                <WCWallet burnerAccount={burnerAccount} />
 
                 <div className="pt-2 border-t border-border/50 space-y-2">
                   <p className="text-xs text-muted-foreground">Transfer or unlink this identity</p>
