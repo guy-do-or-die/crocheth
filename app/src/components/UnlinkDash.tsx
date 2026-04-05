@@ -48,13 +48,11 @@ export function UnlinkDash({ burner }: UnlinkDashProps) {
       setBurnerBal(parseFloat(formatEther(ethBal)).toFixed(6))
     } catch (e) { console.warn('ETH balance:', e) }
     try {
-      // Unlink pool balance
-      const { unlinkClient, accountKeys } = await getInfra()
-      const bals = await (unlinkClient as any).getBalances?.(accountKeys) ??
-        await fetch(`${ENGINE_URL}/v1/accounts/${accountKeys.address}/balances`, {
-          headers: { 'x-api-key': UNLINK_API_KEY }
-        }).then(r => r.json())
-      const poolAmount = bals?.balances?.[0]?.amount ?? bals?.[0]?.amount ?? '0'
+      // Unlink pool balance — use the stateful client which has getBalances
+      const account = unlinkAccount.fromMnemonic({ mnemonic: UNLINK_MNEMONIC })
+      const unlink = createUnlink({ engineUrl: ENGINE_URL, apiKey: UNLINK_API_KEY, account })
+      const bals = await unlink.getBalances({ token: FAUCET_TOKEN })
+      const poolAmount = bals?.balances?.[0]?.amount ?? '0'
       setPoolBal(parseFloat(formatEther(BigInt(poolAmount))).toFixed(4))
     } catch (e) { console.warn('Pool balance:', e); setPoolBal('?') }
   }, [burner, getInfra])
@@ -138,12 +136,14 @@ export function UnlinkDash({ burner }: UnlinkDashProps) {
       const hash = await wc.sendTransaction({
         to: to as `0x${string}`,
         value: parseEther(amount),
+        gas: 21000n,
       })
       setStatus(`Sent! Tx: ${hash.slice(0, 16)}… → ${import.meta.env.VITE_EXPLORER_URL ?? 'https://sepolia.basescan.org'}/tx/${hash}`)
       setTimeout(refreshBalances, 6000)
     } catch (e: any) { setStatus(`Send error: ${e.message}`) }
     finally { setIsLoading(false) }
   }
+
 
   // Sweep burner tokens back to pool
   const handleSweep = async () => {
@@ -266,18 +266,18 @@ export function UnlinkDash({ burner }: UnlinkDashProps) {
         <Input
           type="number" step="0.001" value={amount}
           onChange={e => setAmount(e.target.value)}
-          placeholder="Amount (ETH)"
+          placeholder="Amount (TKN / ETH)"
           className="text-xs"
         />
         <Input
           value={recipient}
           onChange={e => setRecipient(e.target.value)}
-          placeholder="0x… recipient"
+          placeholder="0x… recipient (IRL payment)"
           className="text-xs font-mono"
         />
       </div>
 
-      {/* Action buttons — Top Rows */}
+      {/* Action buttons */}
       <div className="grid grid-cols-2 gap-2">
         <Button size="sm" className="text-xs bg-slate-600 hover:bg-slate-700" onClick={handleOwnerDeposit} disabled={isLoading}>
           ↙️ Deposit into Pool
